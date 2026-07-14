@@ -8,6 +8,13 @@ import React from "react";
 import { renderToString } from "react-dom/server.browser";
 
 const DefaultPage: React.FC<KindePageEvent> = ({ context, request }) => {
+  const { connections, actions, session } = context;
+  const available = connections?.available ?? [];
+  const switchAction = actions?.switchConnection;
+  const psid = session?.pipelineStepId;
+
+
+
   return (
     <Root context={context} request={request}>
       <DefaultLayout>
@@ -15,6 +22,25 @@ const DefaultPage: React.FC<KindePageEvent> = ({ context, request }) => {
           heading={context.widget.content.heading}
           description={context.widget.content.description}
         />
+        <div data-kinde-root>
+        <h1>Choose how to continue</h1>
+        <ul>
+          {available.map((connection) => (
+            <li key={connection.id}>
+              <button
+                type="button"
+                data-kinde-change-connection-button="true"
+                data-kinde-change-connection-id={connection.id}
+                data-kinde-change-connection-psid={psid}
+                data-kinde-change-connection-action={JSON.stringify(switchAction)}
+              >
+                Continue with {connection.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+
       </DefaultLayout>
     </Root>
   );

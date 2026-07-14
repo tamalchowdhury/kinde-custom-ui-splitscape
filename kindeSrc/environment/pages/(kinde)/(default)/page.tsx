@@ -30,9 +30,7 @@ const DefaultPage: React.FC<KindePageEvent> = ({ context, request }) => {
                   data-kinde-change-connection-button="true"
                   data-kinde-change-connection-id={connection.id}
                   data-kinde-change-connection-psid={psid}
-                  data-kinde-change-connection-action={JSON.stringify(
-                    switchAction,
-                  )}
+                  data-kinde-change-connection-action={JSON.stringify(switchAction)}
                 >
                   Continue with {connection.name}
                 </button>

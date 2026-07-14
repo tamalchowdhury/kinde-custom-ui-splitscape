@@ -182,51 +182,89 @@ const DefaultPage: React.FC<KindePageEvent> = ({ context, request }) => {
     }
 
     var values = fieldValuesFromButton(btn);
-    var form = document.createElement("form");
-    form.method = (action.method || "POST").toUpperCase();
-    form.action = action.actionUrl;
-    form.style.display = "none";
+    var body = new FormData();
+    var fieldNames = [];
 
     Object.keys(action.fields).forEach(function (logicalKey) {
       var inputName = action.fields[logicalKey];
       if (!inputName) return;
-      var input = document.createElement("input");
-      input.type = "hidden";
-      input.name = inputName;
-      input.value = Object.prototype.hasOwnProperty.call(values, logicalKey)
+      var value = Object.prototype.hasOwnProperty.call(values, logicalKey)
         ? String(values[logicalKey] == null ? "" : values[logicalKey])
         : "";
-      form.appendChild(input);
+      body.append(inputName, value);
+      fieldNames.push(inputName);
     });
 
-    var csrf = document.head.querySelector("[name=csrf-token][content]");
-    if (csrf && csrf.content) {
-      var csrfInput = document.createElement("input");
-      csrfInput.type = "hidden";
-      csrfInput.name = "authenticity_token";
-      csrfInput.value = csrf.content;
-      form.appendChild(csrfInput);
-    }
-
-    document.body.appendChild(form);
+    var csrfEl = document.head.querySelector("[name=csrf-token][content]");
+    var csrf = csrfEl && csrfEl.content ? csrfEl.content : "";
 
     send({
       runId: "post-fix",
-      hypothesisId: "E",
+      hypothesisId: "G",
       location: "page.tsx:switch-submit",
-      message: "submitting switch connection form",
+      message: "submitting switch connection via roast fetch",
       data: {
         id: values.connectionId,
         psid: values.psid,
         authIntent: values.authIntent,
         actionUrlPreview: String(action.actionUrl).slice(0, 120),
-        method: form.method,
-        fieldNames: Array.prototype.slice.call(form.elements).map(function (el) { return el.name; }),
+        method: action.method || "POST",
+        fieldNames: fieldNames,
+        hasCsrf: !!csrf,
         hrefBefore: location.href
       }
     });
 
-    form.submit();
+    fetch(action.actionUrl, {
+      method: action.method || "POST",
+      body: body,
+      redirect: "manual",
+      credentials: "same-origin",
+      headers: {
+        Accept: "roast/mixed",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-Client-Time": String(Date.now()),
+        ...(csrf ? { "X-CSRF-Token": csrf } : {})
+      }
+    }).then(function (res) {
+      var loc = res.headers.get("Location");
+      var intra = res.headers.get("x-intra-redirect");
+      send({
+        runId: "post-fix",
+        hypothesisId: "G",
+        location: "page.tsx:switch-response",
+        message: "switch connection response",
+        data: {
+          status: res.status,
+          type: res.type,
+          ok: res.ok,
+          locationHeader: loc ? String(loc).slice(0, 160) : null,
+          intraRedirect: intra ? String(intra).slice(0, 160) : null,
+          hrefAfter: location.href
+        }
+      });
+
+      if (loc && !intra) {
+        window.location.assign(loc);
+        return;
+      }
+      if (intra) {
+        window.location.assign(intra);
+        return;
+      }
+      if (res.status >= 300 && res.status < 400 && loc) {
+        window.location.assign(loc);
+      }
+    }).catch(function (err) {
+      send({
+        runId: "post-fix",
+        hypothesisId: "G",
+        location: "page.tsx:switch-fetch-error",
+        message: "switch connection fetch failed",
+        data: { error: String(err && err.message ? err.message : err) }
+      });
+    });
+
     return true;
   }
 

@@ -3,7 +3,7 @@
 import { Widget } from "../../../../components/widget";
 import { DefaultLayout } from "../../../../layouts/default";
 import { Root } from "../../../../root";
-import { type KindePageEvent } from "@kinde/infrastructure";
+import { getKindeNonce, type KindePageEvent } from "@kinde/infrastructure";
 import React from "react";
 import { renderToString } from "react-dom/server.browser";
 
@@ -20,7 +20,6 @@ const DefaultPage: React.FC<KindePageEvent> = ({ context, request }) => {
     location: "page.tsx:ssr",
     message: "connection switcher SSR context",
     hypothesisId: "A",
-    timestamp: Date.now(),
     data: {
       availableCount: available.length,
       connectionIds: available.map((c) => ({
@@ -36,7 +35,7 @@ const DefaultPage: React.FC<KindePageEvent> = ({ context, request }) => {
           : [],
       switchActionMethod:
         switchAction && typeof switchAction === "object"
-          ? (switchAction as { method?: string }).method ?? null
+          ? ((switchAction as { method?: string }).method ?? null)
           : null,
       hasActionUrl: !!(
         switchAction &&
@@ -63,41 +62,82 @@ const DefaultPage: React.FC<KindePageEvent> = ({ context, request }) => {
           description={context.widget.content.description}
         />
         <div data-kinde-root data-debug-switcher="true">
-        <h1>Choose how to continue</h1>
-        <ul>
-          {available.map((connection) => (
-            <li key={connection.id}>
-              <button
-                type="button"
-                data-kinde-change-connection-button="true"
-                data-kinde-change-connection-id={connection.id}
-                data-kinde-change-connection-psid={psid}
-                data-kinde-change-connection-action={JSON.stringify(switchAction)}
-              >
-                Continue with {connection.name}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-      {/* #region agent log */}
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `
+          <h1>Choose how to continue</h1>
+          <ul>
+            {available.map((connection) => (
+              <li key={connection.id}>
+                <button
+                  type="button"
+                  data-kinde-change-connection-button="true"
+                  data-kinde-change-connection-id={connection.id}
+                  data-kinde-change-connection-psid={psid}
+                  data-kinde-change-connection-action={JSON.stringify(
+                    switchAction,
+                  )}
+                >
+                  Continue with {connection.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+        {/* #region agent log */}
+        <pre
+          id="agent-debug-panel"
+          style={{
+            position: "fixed",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            maxHeight: "40vh",
+            overflow: "auto",
+            zIndex: 99999,
+            margin: 0,
+            padding: "12px",
+            background: "#111",
+            color: "#0f0",
+            fontSize: "11px",
+            fontFamily: "ui-monospace, Menlo, monospace",
+            whiteSpace: "pre-wrap",
+            borderTop: "2px solid #0f0",
+          }}
+        >
+          {JSON.stringify(debugPayload, null, 2)}
+        </pre>
+        <script
+          nonce={getKindeNonce()}
+          dangerouslySetInnerHTML={{
+            __html: `
 (function () {
   var ENDPOINT = "http://127.0.0.1:7288/ingest/03c6ae6d-b914-4c84-bf6c-1019c3a71528";
   var SID = "8e6b2b";
+  var lines = [];
+  var panel = document.getElementById("agent-debug-panel");
+
+  function show() {
+    if (panel) panel.textContent = lines.map(function (l) { return JSON.stringify(l); }).join("\\n");
+  }
+
   function send(payload) {
+    var entry = Object.assign({ sessionId: SID, timestamp: Date.now() }, payload);
+    lines.push(entry);
+    show();
     try {
       fetch(ENDPOINT, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
+          "Content-Type": "text/plain",
           "X-Debug-Session-Id": SID
         },
-        body: JSON.stringify(Object.assign({ sessionId: SID, timestamp: Date.now() }, payload))
+        body: JSON.stringify(entry),
+        mode: "no-cors",
+        keepalive: true
       }).catch(function () {});
     } catch (e) {}
+    try {
+      var img = new Image();
+      img.src = ENDPOINT + "?sid=" + encodeURIComponent(SID) + "&m=" + encodeURIComponent(entry.message || "") + "&t=" + Date.now();
+    } catch (e2) {}
   }
 
   var ssr = ${JSON.stringify(debugPayload)};
@@ -138,7 +178,7 @@ const DefaultPage: React.FC<KindePageEvent> = ({ context, request }) => {
         psid: btn.getAttribute("data-kinde-change-connection-psid"),
         hasButtonAttr: btn.getAttribute("data-kinde-change-connection-button"),
         actionRawPresent: actionRaw != null,
-        actionRawPreview: actionRaw ? String(actionRaw).slice(0, 120) : null,
+        actionRawPreview: actionRaw ? String(actionRaw).slice(0, 160) : null,
         actionParsedOk: actionParsedOk,
         actionParseError: actionParseError,
         actionKeys: actionKeys,
@@ -147,10 +187,6 @@ const DefaultPage: React.FC<KindePageEvent> = ({ context, request }) => {
         display: window.getComputedStyle(btn).display,
         tagName: btn.tagName
       };
-    });
-
-    var scripts = Array.prototype.slice.call(document.scripts).map(function (s) {
-      return { src: s.src || null, hasInline: !s.src && !!(s.textContent && s.textContent.length > 0), inlineLen: s.src ? 0 : (s.textContent || "").length };
     });
 
     send({
@@ -163,9 +199,8 @@ const DefaultPage: React.FC<KindePageEvent> = ({ context, request }) => {
         rootCount: roots.length,
         roots: roots,
         buttonSnapshots: buttonSnapshots,
-        scriptCount: scripts.length,
-        scriptSrcs: scripts.filter(function (s) { return s.src; }).map(function (s) { return s.src; }),
-        hasCsrfMeta: !!document.querySelector('meta[name="csrf-token"]')
+        hasCsrfMeta: !!document.querySelector('meta[name="csrf-token"]'),
+        scriptSrcs: Array.prototype.slice.call(document.scripts).map(function (s) { return s.src || ("inline:" + (s.textContent || "").length); }).filter(Boolean)
       }
     });
   }
@@ -187,6 +222,7 @@ const DefaultPage: React.FC<KindePageEvent> = ({ context, request }) => {
         psid: btn.getAttribute("data-kinde-change-connection-psid"),
         actionRawPresent: actionRaw != null,
         actionLooksUndefined: actionRaw === "undefined" || actionRaw === "null",
+        actionRawPreview: actionRaw ? String(actionRaw).slice(0, 160) : null,
         defaultPrevented: ev.defaultPrevented,
         eventPhase: ev.eventPhase,
         isTrusted: ev.isTrusted
@@ -229,10 +265,9 @@ const DefaultPage: React.FC<KindePageEvent> = ({ context, request }) => {
   });
 })();
 `,
-        }}
-      />
-      {/* #endregion */}
-
+          }}
+        />
+        {/* #endregion */}
       </DefaultLayout>
     </Root>
   );
